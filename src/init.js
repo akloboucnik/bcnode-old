@@ -1,135 +1,123 @@
+var Lock = require('./lock.js')
+var Log = require('./log.js')
 
-var Lock = require("./lock.js");
-var Log = require("./log.js");
+global._BlockColliderVersion = '0.0.1'
+global.log = new Log()
+global._GenesisPath = './genesis.json'
 
-    global._BlockColliderVersion = "0.0.1";
-    global.log = new Log(); 
-    global._GenesisPath = "./genesis.json";
+var log = global.log
+var path = require('path' + '') // make browserify skip it
+var fs = require('fs')
+var async = require('async')
+var Identity = require('./identity.js')
+var Network = require('./network.js')
+var RoverBase = require('./rovers/base.js')
+var Storage = require('./storage.js')
+var colors = require('colors')
 
-var log = global.log;
-var path = require('path'+''); // make browserify skip it
-var fs = require('fs'); 
-var async = require('async');
-var Identity = require("./identity.js");
-var Network = require("./network.js");
-var RoverBase = require("./rovers/base.js");
-var Storage = require("./storage.js");
-var colors = require('colors');
+function getColor (tag) {
+  if (tag == 'wav') return colors.bgCyan(tag)
 
+  if (tag == 'lsk') return colors.bgRed(tag)
 
-function getColor(tag){
+  if (tag == 'eth') return colors.bgMagenta(tag)
 
-    if(tag == "wav") return colors.bgCyan(tag);
+  if (tag == 'btc') return colors.bgYellow(tag)
 
-    if(tag == "lsk") return colors.bgRed(tag);
-
-    if(tag == "eth") return colors.bgMagenta(tag);
-
-    if(tag == "btc") return colors.bgYellow(tag);
-
-    if(tag == "neo") return colors.bgGreen(tag);
-
+  if (tag == 'neo') return colors.bgGreen(tag)
 }
 
-function readFile(){
-
-    try {
-        return require(global._GenesisPath);
-    } catch(err) {
-        log.error("unable to parse GENESIS file "+global._GenesisPath); 
-    }
-
+function readFile () {
+  try {
+    return require(global._GenesisPath)
+  } catch (err) {
+    log.error('unable to parse GENESIS file ' + global._GenesisPath)
+  }
 }
 
-var identity = new Identity();
+var identity = new Identity()
 
-    identity.load(function(err, data){
+identity.load(function (err, data) {
+  if (err) {
+    log.error(err)
+    process.exit(3)
+  } else {
+    log.info('identity setup complete')
 
-        if(err) {
+    global._BlockColliderIdentity = identity
 
-      log.error(err);
-      process.exit(3);
+    var network = new Network()
 
-        } else {
+    var base = new RoverBase()
 
-            log.info("identity setup complete");
+    network.setup(function () {
+      var networkInterfaces = network.connect()
 
-      global._BlockColliderIdentity = identity;
+      var dht = networkInterfaces.dht
 
-            var network = new Network(); 
+      var p2p = networkInterfaces.p2p
 
-            var base = new RoverBase(); 
+      var storage = new Storage()
 
-                network.setup(function() {
+      var blockQueue = async.queue(function (msg, cb) {
+        storage.addBlock(msg, cb)
+      })
 
-                  var networkInterfaces = network.connect(); 
+      storage.init(function () {
+        base.launchRover('btc')
+        base.launchRover('eth')
+        base.launchRover('neo')
+        base.launchRover('wav')
+        // base.launchRover("lsk");
+        // base.launchRover("xcp");
 
-                  var dht = networkInterfaces.dht;
+        /* Rover Base Events */
+        base.events.on('pow', function (msg) {
+          console.log('--------------POW---------------')
+          console.log(msg)
+        })
 
-                  var p2p = networkInterfaces.p2p;
+        base.events.on('metric', function (msg) {
+          console.log('--------------METRIC---------------')
+          console.log(msg)
+        })
 
-            var storage = new Storage();
+        base.events.on('log', function (msg) {
+          console.log(msg)
+        })
 
-                  var blockQueue = async.queue(function(msg, cb){
-                      storage.addBlock(msg, cb); 
-                  });
+        base.events.on('block', function (msg) {
+          blockQueue.push(msg, function (err, msg) {
+            if (err) {
+              log.error(err)
+            } else {
+              // elselog.info("new "+getColor(msg.id)+" block "+msg.data.blockNumber+" TXs "+msg.data.transactions.length);
+              log.info(
+                'new ' + getColor(msg.id) + ' block ' + msg.data.blockNumber
+              )
+            }
+          })
+        })
 
-              storage.init(function() {
+        /* Storage Events */
+        storage.events.on('blockadded', function (block) {
+          dht.quasarPublish('block', block)
+        })
 
-            base.launchRover("btc");
-            base.launchRover("eth");
-            base.launchRover("neo");
-            base.launchRover("wav");
-            //base.launchRover("lsk");
-            //base.launchRover("xcp");
-                        
-                        /* Rover Base Events */
-            base.events.on("pow", function(msg){
-                            console.log("--------------POW---------------");
-              console.log(msg);
-            });
+        /* DHT Events */
+        dht.subscribe('block', function (block) {
+          storage.addBlock(block, function (err, s) {
+            if (err) {
+              log.error(err)
+            } else {
+            }
+          })
+        })
 
-            base.events.on("metric", function(msg){
-                            console.log("--------------METRIC---------------");
-              console.log(msg);
-            });
-
-            base.events.on("log", function(msg){
-              console.log(msg);
-            });
-
-            base.events.on("block", function(msg){
-              blockQueue.push(msg, function(err, msg){
-                                if(err) { log.error(err); } else {
-                    //elselog.info("new "+getColor(msg.id)+" block "+msg.data.blockNumber+" TXs "+msg.data.transactions.length);
-                    log.info("new "+getColor(msg.id)+" block "+msg.data.blockNumber);
-                                }
-              });
-            });
-
-                        /* Storage Events */
-                        storage.events.on("blockadded", function(block){
-                            dht.quasarPublish("block", block);
-                        });
-
-                        /* DHT Events */
-                        dht.subscribe("block", function(block){
-                            storage.addBlock(block, function(err, s){
-                                if(err) { log.error(err); } else {
-
-                                }
-                            });
-                        });
-
-                        dht.subscribe("tx", function(tx){
-                            storage.addBlockTransaction(tx);
-                        });
-
-            });
-               });
-
-        }
-
-    });
-
-
+        dht.subscribe('tx', function (tx) {
+          storage.addBlockTransaction(tx)
+        })
+      })
+    })
+  }
+})

@@ -1,65 +1,51 @@
-
 var swarm = require('discovery-swarm')
-var moment = require('moment');
-var crypto = require('crypto');
-var ee = require("events").EventEmitter;
-var string = require("./utils/strings.js");
-var Log = require('./log.js');
+var moment = require('moment')
+var EventEmitter = require('events').EventEmitter
+var string = require('./utils/strings.js')
+var Log = require('./log.js')
 
-var log = new Log(); 
+var log = new Log()
 
-function Discovery(opts) {
+function Discovery (opts) {
+  var options = {
+    port: 16600
+  }
 
-    var options = {
-        port: 16600
-    }
+  if (opts !== undefined) {
+    Object.keys(opts).map(function (k) {
+      options[k] = opts[k]
+    })
+  }
 
-    if(opts != undefined){
+  Object.keys(options).map(k => {
+    this[k] = options[k]
+  })
 
-        Object.keys(opts).map(function(k){
-            options[k] = opts[k]; 
-        });
-
-    }
-
-    Object.keys(options).map(function(k){
-        this[k] = options[k];
-    });
-
-    this.swarm = swarm();
+  this.swarm = swarm()
 }
-
 
 Discovery.prototype = {
+  events: new EventEmitter(),
 
-    events: new ee(),
+  start: function () {
+    var self = this
 
-    start: function() {
+    self.hash = string.blake2bl('bc+' + moment().format('YYYY'))
 
-        var self = this;
+    self.swarm.listen(self.port)
 
-            self.hash = string.blake2bl("bc+"+moment().format("YYYY"));
+    self.swarm.join(self.hash)
 
-            self.swarm.listen(self.port);
+    log.info('banner key assigned ' + self.hash)
 
-            self.swarm.join(self.hash); 
+    return self.swarm
+  },
 
-      log.info("banner key assigned "+self.hash);
+  stop: function () {
+    var self = this
 
-            return self.swarm;
-
-    }, 
-
-    stop: function(){
-
-        var self = this;
-
-            self.swarm.leave(self.hash);
-
-    }
-    
+    self.swarm.leave(self.hash)
+  }
 }
 
-module.exports = Discovery;
-
-
+module.exports = Discovery
